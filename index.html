@@ -311,6 +311,36 @@
             display: flex;
             align-items: center;
         }
+        
+        .year-month-filter {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        
+        .year-month-filter select {
+            width: auto;
+        }
+        
+        .filter-label {
+            font-weight: 600;
+            color: #2c3e50;
+        }
+        
+        .chart-section {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+            margin-top: 20px;
+        }
+        
+        .chart-container {
+            height: 300px;
+            position: relative;
+        }
     </style>
 </head>
 <body>
@@ -389,6 +419,16 @@
             <section class="records-section">
                 <h2 class="section-title">支出记录</h2>
                 
+                <div class="year-month-filter">
+                    <span class="filter-label">筛选：</span>
+                    <select id="year-select">
+                        <option value="all">全部年份</option>
+                    </select>
+                    <select id="month-select">
+                        <option value="all">全部月份</option>
+                    </select>
+                </div>
+                
                 <div class="tabs">
                     <div class="tab active" data-filter="all">全部记录</div>
                     <div class="tab" data-filter="pending">未报销</div>
@@ -404,12 +444,21 @@
                 </div>
             </section>
         </div>
+        
+        <section class="chart-section">
+            <h2 class="section-title">支出统计图表</h2>
+            <div class="chart-container">
+                <canvas id="expense-chart"></canvas>
+            </div>
+        </section>
     </div>
-
+    
     <script>
         // 初始化数据
         let expenses = JSON.parse(localStorage.getItem('expenses')) || [];
         let currentFilter = 'all';
+        let currentYear = 'all';
+        let currentMonth = 'all';
         
         // DOM元素
         const expenseForm = document.getElementById('expense-form');
@@ -418,6 +467,8 @@
         const imagePreview = document.getElementById('image-preview');
         const recordsList = document.getElementById('records-list');
         const tabs = document.querySelectorAll('.tab');
+        const yearSelect = document.getElementById('year-select');
+        const monthSelect = document.getElementById('month-select');
         const stats = {
             total: document.querySelector('.total-expense'),
             pending: document.querySelector('.pending-expense'),
@@ -426,6 +477,9 @@
         
         // 设置默认日期为今天
         document.getElementById('expense-date').valueAsDate = new Date();
+        
+        // 初始化年份和月份选择器
+        initYearMonthFilter();
         
         // 上传区域事件
         uploadArea.addEventListener('click', () => expenseImage.click());
@@ -460,6 +514,8 @@
                     imagePreview.style.display = 'block';
                 };
                 reader.readAsDataURL(file);
+            } else {
+                imagePreview.style.display = 'none';
             }
         }
         
@@ -473,6 +529,12 @@
             const category = document.getElementById('expense-category').value;
             const notes = document.getElementById('expense-notes').value;
             const image = imagePreview.src || '';
+            
+            // 检查重复记录
+            if (isDuplicateExpense(title, amount, date)) {
+                alert('该记录已存在，请勿重复添加！');
+                return;
+            }
             
             const expense = {
                 id: Date.now(),
@@ -490,12 +552,23 @@
             saveExpenses();
             renderExpenses();
             updateStats();
+            initYearMonthFilter(); // 重新初始化年份月份过滤器
+            updateChart(); // 更新图表
             
             // 重置表单
             expenseForm.reset();
             imagePreview.style.display = 'none';
             document.getElementById('expense-date').valueAsDate = new Date();
         });
+        
+        // 检查重复记录
+        function isDuplicateExpense(title, amount, date) {
+            return expenses.some(expense => 
+                expense.title === title && 
+                expense.amount === amount && 
+                expense.date === date
+            );
+        }
         
         // 标签切换
         tabs.forEach(tab => {
@@ -507,6 +580,79 @@
             });
         });
         
+        // 年份选择
+        yearSelect.addEventListener('change', () => {
+            currentYear = yearSelect.value;
+            renderExpenses();
+            updateChart();
+        });
+        
+        // 月份选择
+        monthSelect.addEventListener('change', () => {
+            currentMonth = monthSelect.value;
+            renderExpenses();
+            updateChart();
+        });
+        
+        // 初始化年份月份过滤器
+        function initYearMonthFilter() {
+            // 获取当前年月
+            const now = new Date();
+            const currentYearValue = now.getFullYear();
+            const currentMonthValue = String(now.getMonth() + 1).padStart(2, '0');
+            
+            // 获取所有记录中的年份和月份
+            const years = new Set();
+            const months = new Set();
+            
+            years.add(currentYearValue);
+            months.add(currentMonthValue);
+            
+            expenses.forEach(expense => {
+                const date = new Date(expense.date);
+                const year = date.getFullYear();
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                years.add(year);
+                months.add(month);
+            });
+            
+            // 清空现有选项
+            yearSelect.innerHTML = '<option value="all">全部年份</option>';
+            monthSelect.innerHTML = '<option value="all">全部月份</option>';
+            
+            // 添加年份选项，按年份倒序排列
+            const sortedYears = Array.from(years).sort((a, b) => b - a);
+            sortedYears.forEach(year => {
+                const option = document.createElement('option');
+                option.value = year;
+                option.textContent = `${year}年`;
+                
+                // 如果年份是当前年份，则默认选中
+                if (year === currentYearValue) {
+                    option.selected = true;
+                    currentYear = year;
+                }
+                
+                yearSelect.appendChild(option);
+            });
+            
+            // 添加月份选项
+            for (let i = 1; i <= 12; i++) {
+                const month = String(i).padStart(2, '0');
+                const option = document.createElement('option');
+                option.value = month;
+                option.textContent = `${i}月`;
+                
+                // 如果月份是当前月份，则默认选中
+                if (month === currentMonthValue) {
+                    option.selected = true;
+                    currentMonth = month;
+                }
+                
+                monthSelect.appendChild(option);
+            }
+        }
+        
         // 保存到localStorage
         function saveExpenses() {
             localStorage.setItem('expenses', JSON.stringify(expenses));
@@ -516,10 +662,28 @@
         function renderExpenses() {
             let filteredExpenses = expenses;
             
+            // 按状态过滤
             if (currentFilter === 'pending') {
                 filteredExpenses = expenses.filter(expense => !expense.reimbursed);
             } else if (currentFilter === 'reimbursed') {
                 filteredExpenses = expenses.filter(expense => expense.reimbursed);
+            }
+            
+            // 按年份和月份过滤
+            if (currentYear !== 'all') {
+                filteredExpenses = filteredExpenses.filter(expense => {
+                    const expenseDate = new Date(expense.date);
+                    const expenseYear = expenseDate.getFullYear();
+                    return expenseYear === parseInt(currentYear);
+                });
+            }
+            
+            if (currentMonth !== 'all') {
+                filteredExpenses = filteredExpenses.filter(expense => {
+                    const expenseDate = new Date(expense.date);
+                    const expenseMonth = String(expenseDate.getMonth() + 1).padStart(2, '0');
+                    return expenseMonth === currentMonth;
+                });
             }
             
             if (filteredExpenses.length === 0) {
@@ -566,6 +730,7 @@
                 saveExpenses();
                 renderExpenses();
                 updateStats();
+                updateChart();
             }
         }
         
@@ -576,11 +741,14 @@
                 saveExpenses();
                 renderExpenses();
                 updateStats();
+                initYearMonthFilter(); // 重新初始化年份月份过滤器
+                updateChart();
             }
         }
         
         // 更新统计信息
         function updateStats() {
+            // 计算全部数据的统计
             const total = expenses.reduce((sum, exp) => sum + exp.amount, 0);
             const pending = expenses
                 .filter(exp => !exp.reimbursed)
@@ -600,9 +768,82 @@
             return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
         }
         
+        // 初始化图表
+        let expenseChart = null;
+        
+        function updateChart() {
+            const ctx = document.getElementById('expense-chart').getContext('2d');
+            
+            // 如果图表已存在，销毁它
+            if (expenseChart) {
+                expenseChart.destroy();
+            }
+            
+            // 获取筛选后的数据
+            let filteredExpenses = expenses;
+            
+            // 按年份和月份过滤
+            if (currentYear !== 'all') {
+                filteredExpenses = filteredExpenses.filter(expense => {
+                    const expenseDate = new Date(expense.date);
+                    const expenseYear = expenseDate.getFullYear();
+                    return expenseYear === parseInt(currentYear);
+                });
+            }
+            
+            if (currentMonth !== 'all') {
+                filteredExpenses = filteredExpenses.filter(expense => {
+                    const expenseDate = new Date(expense.date);
+                    const expenseMonth = String(expenseDate.getMonth() + 1).padStart(2, '0');
+                    return expenseMonth === currentMonth;
+                });
+            }
+            
+            // 按类别分组数据
+            const categories = ['餐饮', '交通', '购物', '娱乐', '办公', '医疗', '其他'];
+            const categoryData = categories.map(category => {
+                const categoryExpenses = filteredExpenses.filter(expense => expense.category === category);
+                return categoryExpenses.reduce((sum, expense) => sum + expense.amount, 0);
+            });
+            
+            // 创建图表
+            expenseChart = new Chart(ctx, {
+                type: 'pie',
+                data: {
+                    labels: categories,
+                    datasets: [{
+                        data: categoryData,
+                        backgroundColor: [
+                            '#FF6384',
+                            '#36A2EB',
+                            '#FFCE56',
+                            '#4BC0C0',
+                            '#9966FF',
+                            '#FF9F40',
+                            '#C9CBCF'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'right',
+                        },
+                        title: {
+                            display: true,
+                            text: '支出类别分布'
+                        }
+                    }
+                }
+            });
+        }
+        
         // 初始化
         renderExpenses();
         updateStats();
+        updateChart();
     </script>
 </body>
 </html>
